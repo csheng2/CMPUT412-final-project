@@ -3,7 +3,6 @@
 import rospy
 
 from duckietown.dtros import DTROS, NodeType
-from sensor_msgs.msg import CompressedImage
 from turbojpeg import TurboJPEG
 import cv2
 from duckietown_msgs.msg import Twist2DStamped
@@ -12,6 +11,11 @@ ROAD_MASK = [(20, 60, 0), (50, 255, 255)]
 DEBUG = False
 ENGLISH = False
 
+"""
+    Template for lane follow code was taken from eclass "Lane Follow Package".
+    Author: Justin Francis
+    Link: https://eclass.srv.ualberta.ca/mod/resource/view.php?id=6952069
+"""
 class LaneFollowNode(DTROS):
 
     def __init__(self, node_name):
@@ -41,6 +45,7 @@ class LaneFollowNode(DTROS):
         self.offset = 220
         self.velocity = 0.3
         self.P = 0.035
+        self.I = 0.008
         self.D = -0.0025
 
         # adjust vars for celina's robot
@@ -49,9 +54,8 @@ class LaneFollowNode(DTROS):
             self.D = -0.004
             self.offset = 200
             self.velocity = 0.25
-        
-        self.twist = Twist2DStamped(v=self.velocity, omega=0)
 
+        self.twist = Twist2DStamped(v=self.velocity, omega=0)
 
         self.last_error = 0
         self.last_time = rospy.get_time()
@@ -109,13 +113,17 @@ class LaneFollowNode(DTROS):
             P = -self.proportional * self.P
 
             # D Term
-            d_error = (self.proportional - self.last_error) / (rospy.get_time() - self.last_time)
+            d_time = (rospy.get_time() - self.last_time)
+            d_error = (self.proportional - self.last_error) / d_time
             self.last_error = self.proportional
             self.last_time = rospy.get_time()
             D = d_error * self.D
 
+            # I Term
+            I = -self.proportional * self.I * d_time
+
             self.twist.v = self.velocity
-            self.twist.omega = P + D
+            self.twist.omega = P + I + D
             if DEBUG:
                 self.loginfo(self.proportional, P, D, self.twist.omega, self.twist.v)
 

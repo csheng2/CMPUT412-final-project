@@ -45,3 +45,8 @@ a launcher will be created for it. For example, the script file
 
 When launching a new container, you can simply provide `dt-launcher-my-launcher` as
 command.
+
+
+### 6. Acknowledgements/references
+
+Justin Francis. We used his template for our lane follow code, which was taken from eclass under the exercise 4 "Lane Follow Package" link. https://eclass.srv.ualberta.ca/mod/resource/view.php?id=6952069
