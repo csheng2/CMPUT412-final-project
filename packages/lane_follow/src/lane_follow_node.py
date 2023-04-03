@@ -12,6 +12,8 @@ from sensor_msgs.msg import CompressedImage, CameraInfo
 from image_geometry import PinholeCameraModel
 
 ROAD_MASK = [(20, 60, 0), (50, 255, 255)]
+STOP_LINE_MASK = [(0, 128, 161), (10, 225, 225)]
+DUCKS_WALKING_MASK = [(0, 33, 124), (24, 255, 255)]
 DEBUG = False
 ENGLISH = False
 
