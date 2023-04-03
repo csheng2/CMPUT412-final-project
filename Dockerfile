@@ -1,8 +1,7 @@
 # parameters
 ARG REPO_NAME="CMPUT412-final-project"
 ARG DESCRIPTION="Final project for Experimental Mobile Robotics. Autonomous Driving with Duckietown."
-ARG MAINTAINER="Celina Sheng (csheng2@ualberta.ca)"
-ARG MAINTAINER=" Sharyat Singh Bhanwala (bhanwala@ualberta.ca)"
+ARG MAINTAINER="Celina Sheng (csheng2@ualberta.ca), Sharyat Singh Bhanwala (sharyatsb@gmail.com)"
 # pick an icon from: https://fontawesome.com/v4.7.0/icons/
 ARG ICON="cube"
 
