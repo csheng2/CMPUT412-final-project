@@ -3,9 +3,13 @@
 import rospy
 
 from duckietown.dtros import DTROS, NodeType
-from turbojpeg import TurboJPEG
+from turbojpeg import TurboJPEG, TJPF_GRAY
 import cv2
 from duckietown_msgs.msg import Twist2DStamped
+from dt_apriltags import Detector
+from duckietown.dtros import DTROS, NodeType
+from sensor_msgs.msg import CompressedImage, CameraInfo
+from image_geometry import PinholeCameraModel
 
 ROAD_MASK = [(20, 60, 0), (50, 255, 255)]
 DEBUG = False
@@ -60,6 +64,62 @@ class LaneFollowNode(DTROS):
         self.last_error = 0
         self.last_time = rospy.get_time()
 
+        # ====== April tag variables ======
+        self.last_message = None
+
+        self.apriltag_legend = {
+            48: "right",
+            50: "left",
+            56: "straight",
+            163: "duckwalk",
+            207: "parking 1",
+            226: "parking 2",
+            228: "parking 3",
+            75: "parking 4",
+            227: "parking entrance"
+        }
+
+        self.last_detected_apriltag = None
+
+        # Get static parameters    
+        self.tag_size = 0.065
+        self.rectify_alpha = 0.0
+
+        # Initialize detector
+        self.at_detector = Detector(
+            searchpath = ['apriltags'],
+            families = 'tag36h11',
+            nthreads = 1,
+            quad_decimate = 1.0,
+            quad_sigma = 0.0,
+            refine_edges = 1,
+            decode_sharpening = 0.25,
+            debug = 0
+        )
+
+        # Initialize static parameters from camera info message
+        camera_info_msg = rospy.wait_for_message(f'/{self.veh}/camera_node/camera_info', CameraInfo)
+        self.camera_model = PinholeCameraModel()
+        self.camera_model.fromCameraInfo(camera_info_msg)
+        H, W = camera_info_msg.height, camera_info_msg.width
+
+        # find optimal rectified pinhole camera
+        rect_K, _ = cv2.getOptimalNewCameraMatrix(
+        self.camera_model.K, self.camera_model.D, (W, H), self.rectify_alpha
+        )
+
+        # store new camera parameters
+        self._camera_parameters = (rect_K[0, 0], rect_K[1, 1], rect_K[0, 2], rect_K[1, 2])
+
+        self._mapx, self._mapy = cv2.initUndistortRectifyMap(
+        self.camera_model.K, self.camera_model.D, None, rect_K, (W, H), cv2.CV_32FC1
+        )
+
+        # Apriltag detection timer
+        self.apriltag_hz = 2
+        self.last_message = None
+        self.timer = rospy.Timer(rospy.Duration(1 / self.apriltag_hz), self.cb_apriltag_timer)
+
         # Wait a little while before sending motor commands
         rospy.Rate(0.20).sleep()
 
@@ -67,6 +127,9 @@ class LaneFollowNode(DTROS):
         rospy.on_shutdown(self.hook)
 
     def callback(self, msg):
+        # message for the april tag
+        self.last_message = msg
+
         img = self.jpeg.decode(msg.data)
         crop = img[300:-1, :, :]
         crop_width = crop.shape[1]
@@ -103,6 +166,32 @@ class LaneFollowNode(DTROS):
         if DEBUG:
             rect_img_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(crop))
             self.pub.publish(rect_img_msg)
+
+    def cb_apriltag_timer(self, msg):
+        msg = self.last_message
+
+        if not msg:
+            return
+
+        self.last_detected_apriltag = None
+        # turn image message into grayscale image
+        img = self.jpeg.decode(msg.data, pixel_format=TJPF_GRAY)
+        # run input image through the rectification map
+        img = cv2.remap(img, self._mapx, self._mapy, cv2.INTER_NEAREST)
+
+        # detect tags
+        tags = self.at_detector.detect(img, True, self._camera_parameters, self.tag_size)
+
+        # Only save the april tag if it's within a close distance
+        min_tag_distance = 2
+        for tag in tags:
+            distance = tag.pose_t[2][0]
+
+            # skip if the april tag is far away
+            if distance > min_tag_distance:
+                continue
+
+            self.last_detected_apriltag = tag.tag_id
 
     def drive(self):
         if self.proportional is None:
