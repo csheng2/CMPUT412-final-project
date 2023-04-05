@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 
 import rospy
+import cv2
 
 from duckietown.dtros import DTROS, NodeType
 from turbojpeg import TurboJPEG, TJPF_GRAY
-import cv2
-from duckietown_msgs.msg import Twist2DStamped
+from duckietown_msgs.msg import Twist2DStamped, LEDPattern
 from dt_apriltags import Detector
 from duckietown.dtros import DTROS, NodeType
 from sensor_msgs.msg import CompressedImage, CameraInfo
 from image_geometry import PinholeCameraModel
+from std_msgs.msg import ColorRGBA, Header
 
 ROAD_MASK = [(20, 60, 0), (50, 255, 255)]
 STOP_LINE_MASK = [(0, 128, 161), (10, 225, 225)]
@@ -59,7 +60,6 @@ class LaneFollowNode(DTROS):
       self.P = 0.049
       self.D = -0.004
       self.offset = 200
-      self.velocity = 0.25
 
     self.twist = Twist2DStamped(v=self.velocity, omega=0)
 
@@ -70,6 +70,14 @@ class LaneFollowNode(DTROS):
     self.last_message = None
 
     self.apriltag_legend = {
+      # for the other room
+      # TODO: delete later
+      21: "duckwalk",
+      94: "right",
+      200: "straight",
+      169: "left",
+
+      # for csc 229, the main room
       48: "right",
       50: "left",
       56: "straight",
@@ -80,6 +88,8 @@ class LaneFollowNode(DTROS):
       75: "parking 4",
       227: "parking entrance"
     }
+
+
 
     self.last_detected_apriltag = None
 
@@ -121,6 +131,27 @@ class LaneFollowNode(DTROS):
     self.apriltag_hz = 2
     self.last_message = None
     self.timer = rospy.Timer(rospy.Duration(1 / self.apriltag_hz), self.cb_apriltag_timer)
+
+    self.stop = False  # true if it detected a stop line
+    self.stop_duration = 3  # stop for 3 seconds
+    self.stop_starttime = 0
+    self.stop_cooldown = 3
+    self.stop_threshold_area = 5000 # minimun area of red to stop at
+    self.last_stop_time = None
+
+    # Turn & action variables
+    self.next_action = None
+    self.left_turn_duration = 4
+    self.right_turn_duration = 2
+    self.straight_duration = 4
+    self.started_action = None
+
+    # LED variables
+    # Initialize LED color-changing
+    self.pattern = LEDPattern()
+    self.pattern.header = Header()
+    self.color_publisher = rospy.Publisher(f"/{self.veh}/led_emitter_node/led_pattern", LEDPattern, queue_size = 1)
+    self._initialize_LEDs()
 
     # Wait a little while before sending motor commands
     rospy.Rate(0.20).sleep()
@@ -165,6 +196,48 @@ class LaneFollowNode(DTROS):
     else:
       self.proportional = None
 
+    # STOP LINE HANDLING
+
+    # See if we need to look for stop lines
+    if self.stop or (self.last_stop_time and rospy.get_time() - self.last_stop_time < self.stop_cooldown):
+      if DEBUG:
+        rect_img_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(crop))
+        self.pub.publish(rect_img_msg)
+      return
+    
+    # Mask for stop lines
+    stopMask = cv2.inRange(hsv, STOP_LINE_MASK[0], STOP_LINE_MASK[1])
+    # crop = cv2.bitwise_and(crop, crop, mask=stopMask)
+    stopContours, _ = cv2.findContours(
+      stopMask,
+      cv2.RETR_EXTERNAL,
+      cv2.CHAIN_APPROX_NONE
+    )
+
+    # Search for lane in front
+    max_area = self.stop_threshold_area
+    max_idx = -1
+    for i in range(len(stopContours)):
+      area = cv2.contourArea(stopContours[i])
+      if area > max_area:
+        max_idx = i
+        max_area = area
+
+    if max_idx != -1:
+      M = cv2.moments(stopContours[max_idx])
+      try:
+        cx = int(M['m10'] / M['m00'])
+        cy = int(M['m01'] / M['m00'])
+        self.stop = True
+        self.stop_starttime = rospy.get_time()
+        if DEBUG:
+          cv2.drawContours(crop, stopContours, max_idx, (0, 255, 0), 3)
+          cv2.circle(crop, (cx, cy), 7, (0, 0, 255), -1)
+      except:
+        pass
+    else:
+      self.stop = False
+
     if DEBUG:
       rect_img_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(crop))
       self.pub.publish(rect_img_msg)
@@ -185,40 +258,116 @@ class LaneFollowNode(DTROS):
     tags = self.at_detector.detect(img, True, self._camera_parameters, self.tag_size)
 
     # Only save the april tag if it's within a close distance
-    min_tag_distance = 2
+    min_tag_distance = 0.6
     for tag in tags:
       distance = tag.pose_t[2][0]
 
-      # skip if the april tag is far away
-      if distance > min_tag_distance:
-        continue
-
-      self.last_detected_apriltag = tag.tag_id
+      # get apriltag if it is close
+      if distance < min_tag_distance:
+        self.last_detected_apriltag = tag.tag_id
 
   def drive(self):
-    if self.proportional is None:
-      self.twist.omega = 0
-      self.last_error = 0
-    else:
-      # P Term
-      P = -self.proportional * self.P
+    if self.stop:
+      if rospy.get_time() - self.stop_starttime < self.stop_duration:
+        # Stop
+        self.twist.v = 0
+        self.twist.omega = 0
+        self.vel_pub.publish(self.twist)
+        
+        # Determine next action, if we haven't already
+        # Get available action from last detected april tag
+        if not self.next_action and self.last_detected_apriltag in self.apriltag_legend:
+            self.next_action = self.apriltag_legend[self.last_detected_apriltag]
 
-      # D Term
-      d_time = (rospy.get_time() - self.last_time)
-      d_error = (self.proportional - self.last_error) / d_time
-      self.last_error = self.proportional
-      self.last_time = rospy.get_time()
-      D = d_error * self.D
+        rospy.loginfo("next action: ")
+        rospy.loginfo(self.next_action)
+      else:
+        # Do next action
+        if self.next_action == "left":
+          # Go left
+          if self.started_action == None:
+            self.started_action = rospy.get_time()
+          elif rospy.get_time() - self.started_action < self.left_turn_duration:
+            self.twist.v = self.velocity
+            self.twist.omega = 2.5
+            self.vel_pub.publish(self.twist)
+          else:
+            self.started_action = None
+            self.next_action = None
+        elif self.next_action == "right":
+          # Go right
+          if self.started_action == None:
+            self.started_action = rospy.get_time()
+          elif rospy.get_time() - self.started_action < self.right_turn_duration:
+            self.twist.v = self.velocity
+            self.twist.omega = -2
+            self.vel_pub.publish(self.twist)
+          else:
+            self.started_action = None
+            self.next_action = None
+        elif self.next_action == "straight":
+          rospy.loginfo("TRYING TO TURN STRAIGHT ")
 
-      # I Term
-      I = -self.proportional * self.I * d_time
+          # Go straight
+          if self.started_action == None:
+            self.started_action = rospy.get_time()
+          elif rospy.get_time() - self.started_action < self.straight_duration:
+            self.twist.v = self.velocity
+            self.twist.omega = 0
+            self.vel_pub.publish(self.twist)
+          else:
+            self.started_action = None
+            self.next_action = None
+        else:
+          self.stop = False
+          self.last_stop_time = rospy.get_time()
+    else: # do lane following
+      rospy.loginfo("LANE FOLLOWING")
 
-      self.twist.v = self.velocity
-      self.twist.omega = P + I + D
-      if DEBUG:
-        self.loginfo(self.proportional, P, D, self.twist.omega, self.twist.v)
+      # Determine Omega - based on lane-following
+      if self.proportional is None:
+        self.twist.omega = 0
+        self.last_error = 0
+      else:
+         # P Term
+        P = -self.proportional * self.P
+
+        # D Term
+        d_time = (rospy.get_time() - self.last_time)
+        d_error = (self.proportional - self.last_error) / d_time
+        self.last_error = self.proportional
+        self.last_time = rospy.get_time()
+        D = d_error * self.D
+
+        # I Term
+        I = -self.proportional * self.I * d_time
+
+        self.twist.v = self.velocity
+        self.twist.omega = P + I + D
+        if DEBUG:
+          self.loginfo(self.proportional, P, D, self.twist.omega, self.twist.v)
 
     self.vel_pub.publish(self.twist)
+
+  def _initialize_LEDs(self):
+    '''
+    Code for this function was inspired by 
+    "duckietown/dt-core", file "led_emitter_node.py"
+    Link: https://github.com/duckietown/dt-core/blob/daffy/packages/led_emitter/src/led_emitter_node.py
+    Author: GitHub user liampaull
+    '''
+
+    self.pattern.header.stamp = rospy.Time.now()
+    rgba = ColorRGBA()
+
+    # set LEDs to white to increase light
+    rgba.r = 1.0
+    rgba.g = 1.0
+    rgba.b = 1.0
+    rgba.a = 1.0
+
+    self.pattern.rgb_vals = [rgba] * 5
+    self.color_publisher.publish(self.pattern)
 
   def hook(self):
     print("SHUTTING DOWN")
