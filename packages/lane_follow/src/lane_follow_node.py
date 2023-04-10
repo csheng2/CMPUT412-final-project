@@ -5,12 +5,11 @@ import cv2
 
 from duckietown.dtros import DTROS, NodeType
 from turbojpeg import TurboJPEG, TJPF_GRAY
-from duckietown_msgs.msg import Twist2DStamped, LEDPattern
+from duckietown_msgs.msg import Twist2DStamped
 from dt_apriltags import Detector
 from duckietown.dtros import DTROS, NodeType
 from sensor_msgs.msg import CompressedImage, CameraInfo
 from image_geometry import PinholeCameraModel
-from std_msgs.msg import ColorRGBA, Header
 
 ROAD_MASK = [(20, 60, 0), (50, 255, 255)]
 STOP_LINE_MASK = [(0, 128, 161), (10, 225, 225)]
@@ -145,13 +144,6 @@ class LaneFollowNode(DTROS):
     self.right_turn_duration = 2
     self.straight_duration = 4
     self.started_action = None
-
-    # LED variables
-    # Initialize LED color-changing
-    self.pattern = LEDPattern()
-    self.pattern.header = Header()
-    self.color_publisher = rospy.Publisher(f"/{self.veh}/led_emitter_node/led_pattern", LEDPattern, queue_size = 1)
-    self._initialize_LEDs()
 
     # Wait a little while before sending motor commands
     rospy.Rate(0.20).sleep()
@@ -295,19 +287,10 @@ class LaneFollowNode(DTROS):
             self.started_action = None
             self.next_action = None
         elif self.next_action == "right":
-          # Go right
-          if self.started_action == None:
-            self.started_action = rospy.get_time()
-          elif rospy.get_time() - self.started_action < self.right_turn_duration:
-            self.twist.v = self.velocity
-            self.twist.omega = -2
-            self.vel_pub.publish(self.twist)
-          else:
-            self.started_action = None
-            self.next_action = None
+          # lane following defaults to right turn
+          self.started_action = None
+          self.next_action = None
         elif self.next_action == "straight":
-          rospy.loginfo("TRYING TO TURN STRAIGHT ")
-
           # Go straight
           if self.started_action == None:
             self.started_action = rospy.get_time()
@@ -348,26 +331,6 @@ class LaneFollowNode(DTROS):
           self.loginfo(self.proportional, P, D, self.twist.omega, self.twist.v)
 
     self.vel_pub.publish(self.twist)
-
-  def _initialize_LEDs(self):
-    '''
-    Code for this function was inspired by 
-    "duckietown/dt-core", file "led_emitter_node.py"
-    Link: https://github.com/duckietown/dt-core/blob/daffy/packages/led_emitter/src/led_emitter_node.py
-    Author: GitHub user liampaull
-    '''
-
-    self.pattern.header.stamp = rospy.Time.now()
-    rgba = ColorRGBA()
-
-    # set LEDs to white to increase light
-    rgba.r = 1.0
-    rgba.g = 1.0
-    rgba.b = 1.0
-    rgba.a = 1.0
-
-    self.pattern.rgb_vals = [rgba] * 5
-    self.color_publisher.publish(self.pattern)
 
   def hook(self):
     print("SHUTTING DOWN")
