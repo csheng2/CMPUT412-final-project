@@ -13,7 +13,7 @@ from duckietown_msgs.msg import BoolStamped, VehicleCorners
 
 
 ROAD_MASK = [(20, 60, 0), (50, 255, 255)]
-DUCKS_WALKING_MASK = [(0, 33, 124), (24, 255, 255)]
+DUCKS_WALKING_MASK = [(50, 100, 100), (70, 255, 255)]
 DEBUG = False
 ENGLISH = False
 
@@ -25,6 +25,16 @@ class LaneFollowNode(DTROS):
         self.veh = rospy.get_param("~veh")
 
         # Publishers & Subscribers
+        self.distance_sub = rospy.Subscriber("/csc22919/duckiebot_distance_node/distance", 
+                                        Float32, 
+                                        self.distance_callback, 
+                                        queue_size=1)
+        
+        self.detection_sub = rospy.Subscriber("/csc22919/duckiebot_detection_node/detection", 
+                                         BoolStamped, 
+                                         self.detection_callback, 
+                                         queue_size=1)
+
         self.pub = rospy.Publisher("/" + self.veh + "/output/image/mask/compressed",
                                    CompressedImage,
                                    queue_size=1)
@@ -37,20 +47,11 @@ class LaneFollowNode(DTROS):
                                        Twist2DStamped,
                                        queue_size=1)
         
-        self.distance_sub = rospy.Subscriber("/csc22919/duckiebot_distance_node/distance", 
-                                        Float32, 
-                                        self.distance_callback, 
-                                        queue_size=1)
-        
-        self.detection_sub = rospy.Subscriber("/csc22919/duckiebot_detection_node/detection", 
-                                         BoolStamped, 
-                                         self.detection_callback, 
-                                         queue_size=1)
 
         self.jpeg = TurboJPEG()
 
         self.loginfo("Initialized")
-
+	
         # PID Variables
         self.proportional = None
         if ENGLISH:
@@ -69,7 +70,7 @@ class LaneFollowNode(DTROS):
 
         # stop variables
         self.stop = False
-        self.stop_duck_area = 5000
+        self.stop_duck_area = 500
         self.stop_duration = 3  # stop for 3 seconds
         self.stop_starttime = 0
         self.stop_cooldown = 3
@@ -125,29 +126,25 @@ class LaneFollowNode(DTROS):
         else:
             self.proportional = None
 
-        if DEBUG:
-            rect_img_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(crop))
-            self.pub.publish(rect_img_msg)
-
 
         # Detect ducks
 
         max_duck_area = self.stop_duck_area
         max_duck_idx = -1
-
-        yellow_hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-
-        #TODO: Add yellow HSV values
-
-        yellow_mask = cv2.inRange(hsv, DUCKS_WALKING_MASK[0], DUCKS_WALKING_MASK[1])
-        yellow_crop = cv2.bitwise_and(crop, crop, mask=mask)
-        yellow_contours, hierarchy = cv2.findContours(mask,
+        duck_crop = self.img[300:-1, :, :]
+        yellow_hsv = cv2.cvtColor(duck_crop, cv2.COLOR_BGR2HSV)
+        yellow_mask = cv2.inRange(yellow_hsv, DUCKS_WALKING_MASK[0], DUCKS_WALKING_MASK[1])
+        #yellow_mask = cv2.inRange(yellow_hsv, ROAD_MASK[0], ROAD_MASK[1])
+        yellow_crop = cv2.bitwise_and(duck_crop, duck_crop, mask=yellow_mask)
+        yellow_contours, yellow_hierarchy = cv2.findContours(yellow_mask,
                                                cv2.RETR_EXTERNAL,
                                                cv2.CHAIN_APPROX_NONE)
-        
+
         for i in range(len(yellow_contours)):
+            print(i)
             yellow_area = cv2.contourArea(contours[i])
-            if yellow_area > max_area:
+            print(yellow_area)
+            if yellow_area > max_duck_area:
                 max_duck_idx = i
                 max_duck_area = area
 
@@ -158,8 +155,8 @@ class LaneFollowNode(DTROS):
                 cy = int(duck_M['m01'] / duck_M['m00'])
                 self.stop = True
                 if DEBUG:
-                    cv2.drawContours(crop, contours, max_idx, (0, 255, 0), 3)
-                    cv2.circle(crop, (cx, cy), 7, (0, 0, 255), -1)
+                    cv2.drawContours(duck_crop, contours, max_idx, (0, 255, 0), 3)
+                    cv2.circle(duck_crop, (cx, cy), 7, (0, 0, 255), -1)
             except:
                 pass
 
@@ -172,6 +169,10 @@ class LaneFollowNode(DTROS):
 
         else:
             self.duckie_down = False
+            
+        if DEBUG:
+            rect_img_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(yellow_crop))
+            self.pub.publish(rect_img_msg)
 
     def drive(self):
         if self.stop:
