@@ -16,6 +16,7 @@ STOP_LINE_MASK = [(0, 128, 161), (10, 225, 225)]
 DUCKS_WALKING_MASK = [(0, 33, 124), (24, 255, 255)]
 DEBUG = False
 ENGLISH = False
+DEFAULT_VELOCITY = 0.28
 
 """
   Template for lane follow code was taken from eclass "Lane Follow Package".
@@ -49,7 +50,7 @@ class LaneFollowNode(DTROS):
     # PID Variables
     self.proportional = None
     self.offset = 220
-    self.velocity = 0.3
+    self.velocity = DEFAULT_VELOCITY
     self.P = 0.035
     self.I = 0.008
     self.D = -0.0025
@@ -134,14 +135,14 @@ class LaneFollowNode(DTROS):
     self.stop = False  # true if it detected a stop line
     self.stop_duration = 3  # stop for 3 seconds
     self.stop_starttime = 0
-    self.stop_cooldown = 3
+    self.stop_cooldown = 3.5
     self.stop_threshold_area = 5000 # minimun area of red to stop at
     self.last_stop_time = None
 
     # Turn & action variables
     self.next_action = None
-    self.left_turn_duration = 4
-    self.right_turn_duration = 2
+    self.left_turn_duration = 3.7
+    self.right_turn_duration = 1
     self.straight_duration = 4
     self.started_action = None
 
@@ -253,26 +254,25 @@ class LaneFollowNode(DTROS):
     min_tag_distance = 0.6
     for tag in tags:
       distance = tag.pose_t[2][0]
-
       # get apriltag if it is close
-      if distance < min_tag_distance:
-        self.last_detected_apriltag = tag.tag_id
+      if distance > min_tag_distance:
+        continue
+      
+      self.last_detected_apriltag = tag.tag_id
 
   def drive(self):
+    # Determine next action, if we haven't already
+    # Get available action from last detected april tag
+    if self.next_action is None and self.last_detected_apriltag is not None:
+      self.next_action = self.apriltag_legend[self.last_detected_apriltag]
+
     if self.stop:
       if rospy.get_time() - self.stop_starttime < self.stop_duration:
         # Stop
         self.twist.v = 0
         self.twist.omega = 0
         self.vel_pub.publish(self.twist)
-        
-        # Determine next action, if we haven't already
-        # Get available action from last detected april tag
-        if not self.next_action and self.last_detected_apriltag in self.apriltag_legend:
-            self.next_action = self.apriltag_legend[self.last_detected_apriltag]
-
-        rospy.loginfo("next action: ")
-        rospy.loginfo(self.next_action)
+        self.velocity = DEFAULT_VELOCITY
       else:
         # Do next action
         if self.next_action == "left":
@@ -288,8 +288,14 @@ class LaneFollowNode(DTROS):
             self.next_action = None
         elif self.next_action == "right":
           # lane following defaults to right turn
-          self.started_action = None
-          self.next_action = None
+          if self.started_action == None:
+            self.started_action = rospy.get_time()
+          elif rospy.get_time() - self.started_action < self.right_turn_duration:
+            self._compute_lane_follow_PID()  # lane follow defaults to right turn
+          else:
+            self.started_action = None
+            self.next_action = None
+            self.velocity = 0.25  # lower velocity so that we can see the next apriltag
         elif self.next_action == "straight":
           # Go straight
           if self.started_action == None:
@@ -305,32 +311,34 @@ class LaneFollowNode(DTROS):
           self.stop = False
           self.last_stop_time = rospy.get_time()
     else: # do lane following
-      rospy.loginfo("LANE FOLLOWING")
-
       # Determine Omega - based on lane-following
       if self.proportional is None:
         self.twist.omega = 0
         self.last_error = 0
       else:
-         # P Term
-        P = -self.proportional * self.P
-
-        # D Term
-        d_time = (rospy.get_time() - self.last_time)
-        d_error = (self.proportional - self.last_error) / d_time
-        self.last_error = self.proportional
-        self.last_time = rospy.get_time()
-        D = d_error * self.D
-
-        # I Term
-        I = -self.proportional * self.I * d_time
-
-        self.twist.v = self.velocity
-        self.twist.omega = P + I + D
-        if DEBUG:
-          self.loginfo(self.proportional, P, D, self.twist.omega, self.twist.v)
+        self._compute_lane_follow_PID()
 
     self.vel_pub.publish(self.twist)
+
+  def _compute_lane_follow_PID(self):
+    # P Term
+    P = -self.proportional * self.P
+
+    # D Term
+    d_time = (rospy.get_time() - self.last_time)
+    d_error = (self.proportional - self.last_error) / d_time
+    self.last_error = self.proportional
+    self.last_time = rospy.get_time()
+    D = d_error * self.D
+
+    # I Term
+    I = -self.proportional * self.I * d_time
+
+    self.twist.v = self.velocity
+    self.twist.omega = P + I + D
+    if DEBUG:
+      self.loginfo(self.proportional, P, D, self.twist.omega, self.twist.v)
+
 
   def hook(self):
     print("SHUTTING DOWN")
