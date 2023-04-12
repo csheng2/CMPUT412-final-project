@@ -42,7 +42,7 @@ cv.setTrackbarPos(vl, barsWindow, 0)
 cv.setTrackbarPos(vh, barsWindow, 255)
 
 # read an image
-frame = cv.imread("ducks-in-a-row.png")
+frame = cv.imread("screenshot.png")
 
 
 while(True):
