@@ -5,11 +5,12 @@ import cv2
 
 from duckietown.dtros import DTROS, NodeType
 from turbojpeg import TurboJPEG, TJPF_GRAY
-from duckietown_msgs.msg import Twist2DStamped
+from duckietown_msgs.msg import Twist2DStamped, BoolStamped
 from dt_apriltags import Detector
 from duckietown.dtros import DTROS, NodeType
 from sensor_msgs.msg import CompressedImage, CameraInfo
 from image_geometry import PinholeCameraModel
+from std_msgs.msg import Float32
 
 ROAD_MASK = [(20, 60, 0), (50, 255, 255)]
 STOP_LINE_MASK = [(0, 128, 161), (10, 225, 225)]
@@ -65,6 +66,28 @@ class LaneFollowNode(DTROS):
 
     self.last_error = 0
     self.last_time = rospy.get_time()
+
+    # STAGE 2 VARIABLES
+    self.ducks_crossing = False
+    self.check_duckie_down = False
+    self.drive_around_bot = False
+    self.drive_around_duration = 3.5
+    self.stop_duck_area = 3000
+    
+    # Bot detection variables
+    self.detecting_bot = False
+    self.vehicle_distance = None
+
+    self.distance_sub = rospy.Subscriber(f"/{self.veh}/duckiebot_distance_node/distance", 
+                                    Float32, 
+                                    self.distance_callback, 
+                                    queue_size=1)
+    
+    self.detection_sub = rospy.Subscriber(f"/{self.veh}/duckiebot_detection_node/detection", 
+                                      BoolStamped, 
+                                      self.detection_callback, 
+                                      queue_size=1)
+
 
     # ====== April tag variables ======
     self.last_message = None
@@ -152,6 +175,13 @@ class LaneFollowNode(DTROS):
     # Shutdown hook
     rospy.on_shutdown(self.hook)
 
+
+  def distance_callback(self, msg):
+    self.vehicle_distance = msg.data
+
+  def detection_callback(self, msg):
+    self.detecting_bot = msg.data
+
   def callback(self, msg):
     # message for the april tag
     self.last_message = msg
@@ -219,6 +249,7 @@ class LaneFollowNode(DTROS):
     if max_idx != -1:
       M = cv2.moments(stopContours[max_idx])
       try:
+        rospy.loginfo("SEE STOP LINE")
         cx = int(M['m10'] / M['m00'])
         cy = int(M['m01'] / M['m00'])
         self.stop = True
@@ -230,6 +261,54 @@ class LaneFollowNode(DTROS):
         pass
     else:
       self.stop = False
+
+
+    # ==================================================================
+    # Detect ducks
+    max_duck_area = self.stop_duck_area
+    max_duck_idx = -1
+    duck_crop = img[: , 230:370, :]
+    yellow_hsv = cv2.cvtColor(duck_crop, cv2.COLOR_BGR2HSV)
+    yellow_mask = cv2.inRange(yellow_hsv, DUCKS_WALKING_MASK[0], DUCKS_WALKING_MASK[1])
+    yellow_crop = cv2.bitwise_and(duck_crop, duck_crop, mask=yellow_mask)
+
+    yellow_contours, yellow_hierarchy = cv2.findContours(yellow_mask,
+                                            cv2.RETR_EXTERNAL,
+                                            cv2.CHAIN_APPROX_NONE)
+
+                                                                      
+    for i in range(len(yellow_contours)):
+      yellow_area = cv2.contourArea(yellow_contours[i])
+      if yellow_area > max_duck_area:
+        max_duck_idx = i
+        max_duck_area = yellow_area
+
+    # # don't check for ducks if we're already stopped at a red line
+    # if max_duck_idx != -1 and not self.stop:
+    #   duck_M = cv2.moments(yellow_contours[max_duck_idx])
+    #   try:
+    #     rospy.loginfo("SETTING DUCKS CROSSING TO TRUE")
+    #     cx = int(duck_M['m10'] / duck_M['m00'])
+    #     cy = int(duck_M['m01'] / duck_M['m00'])
+    #     self.ducks_crossing = True
+
+    #     if DEBUG:
+    #       cv2.drawContours(yellow_crop, yellow_contours, max_duck_idx, (0, 255, 0), 3)
+    #       cv2.circle(yellow_crop, (cx, cy), 7, (0, 0, 255), -1)
+    #       rect_img_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(yellow_crop))
+    #       self.pub.publish(rect_img_msg)
+    #   except:
+    #     pass
+	  
+    # # detect blue
+    # else:
+    #   self.ducks_crossing = False
+
+    if (self.detecting_bot == True and self.vehicle_distance < 0.50
+        and not self.check_duckie_down
+        and rospy.get_time() - self.last_stop_time < self.stop_cooldown):
+      self.check_duckie_down = True
+      self.stop_starttime = rospy.get_time()
 
     if DEBUG:
       rect_img_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(crop))
@@ -265,8 +344,18 @@ class LaneFollowNode(DTROS):
     # Get available action from last detected april tag
     if self.next_action is None and self.last_detected_apriltag is not None:
       self.next_action = self.apriltag_legend[self.last_detected_apriltag]
+      rospy.loginfo(self.next_action)
 
-    if self.stop:
+
+    if self.ducks_crossing:
+      rospy.loginfo("HERE")
+      self.twist.v = 0
+      self.twist.omega = 0
+      self.vel_pub.publish(self.twist)
+    elif self.check_duckie_down:
+      rospy.loginfo("353")
+
+
       if rospy.get_time() - self.stop_starttime < self.stop_duration:
         # Stop
         self.twist.v = 0
@@ -274,6 +363,24 @@ class LaneFollowNode(DTROS):
         self.vel_pub.publish(self.twist)
         self.velocity = DEFAULT_VELOCITY
       else:
+        self.check_duckie_down = False
+        self.last_stop_time = rospy.get_time()
+        self.offset *= -1
+        self.drive_around_bot = True
+
+    elif self.stop:
+      rospy.loginfo("ENTERED STOP")
+
+      if rospy.get_time() - self.stop_starttime < self.stop_duration:
+        # Stop
+        self.twist.v = 0
+        self.twist.omega = 0
+        self.vel_pub.publish(self.twist)
+        self.velocity = DEFAULT_VELOCITY
+      else:
+        rospy.loginfo("doing the next action")
+        rospy.loginfo(self.next_action)
+
         # Do next action
         if self.next_action == "left":
           # Go left
@@ -297,6 +404,7 @@ class LaneFollowNode(DTROS):
             self.next_action = None
             self.velocity = 0.25  # lower velocity so that we can see the next apriltag
         elif self.next_action == "straight":
+          rospy.loginfo("going straight")
           # Go straight
           if self.started_action == None:
             self.started_action = rospy.get_time()
@@ -321,6 +429,10 @@ class LaneFollowNode(DTROS):
     self.vel_pub.publish(self.twist)
 
   def _compute_lane_follow_PID(self):
+    if self.drive_around_bot and rospy.get_time() - self.last_stop_time > self.drive_around_duration:
+      self.drive_around_bot = False
+      self.offset *= -1
+
     # P Term
     P = -self.proportional * self.P
 
