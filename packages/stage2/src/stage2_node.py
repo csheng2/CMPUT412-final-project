@@ -13,7 +13,9 @@ from duckietown_msgs.msg import BoolStamped, VehicleCorners
 
 
 ROAD_MASK = [(20, 60, 0), (50, 255, 255)]
-DUCKS_WALKING_MASK = [(50, 100, 100), (70, 255, 255)]
+#DUCKS_WALKING_MASK = [(50, 100, 100), (70, 255, 255)]
+BLUE_MASK = [(230, 100, 100), (250, 255, 255)]
+DUCKS_WALKING_MASK = [(14, 100, 100), (40, 255, 255)]
 DEBUG = False
 ENGLISH = False
 
@@ -51,6 +53,10 @@ class LaneFollowNode(DTROS):
         self.jpeg = TurboJPEG()
 
         self.loginfo("Initialized")
+        
+	# Bot detection variables
+        self.detecting = False
+        self.distance = None
 	
         # PID Variables
         self.proportional = None
@@ -70,7 +76,7 @@ class LaneFollowNode(DTROS):
 
         # stop variables
         self.stop = False
-        self.stop_duck_area = 500
+        self.stop_duck_area = 3000
         self.stop_duration = 3  # stop for 3 seconds
         self.stop_starttime = 0
         self.stop_cooldown = 3
@@ -125,41 +131,59 @@ class LaneFollowNode(DTROS):
                 pass
         else:
             self.proportional = None
-
-
+	
+        
         # Detect ducks
 
         max_duck_area = self.stop_duck_area
+        #max_duck_area = 1
         max_duck_idx = -1
-        duck_crop = self.img[300:-1, :, :]
+        duck_crop = self.img[: , 230:370, :]
         yellow_hsv = cv2.cvtColor(duck_crop, cv2.COLOR_BGR2HSV)
         yellow_mask = cv2.inRange(yellow_hsv, DUCKS_WALKING_MASK[0], DUCKS_WALKING_MASK[1])
+        blue_mask = cv2.inRange(yellow_hsv, BLUE_MASK[0], BLUE_MASK[1])
         #yellow_mask = cv2.inRange(yellow_hsv, ROAD_MASK[0], ROAD_MASK[1])
         yellow_crop = cv2.bitwise_and(duck_crop, duck_crop, mask=yellow_mask)
+
         yellow_contours, yellow_hierarchy = cv2.findContours(yellow_mask,
                                                cv2.RETR_EXTERNAL,
                                                cv2.CHAIN_APPROX_NONE)
+        blue_contours, blue_hierarchy = cv2.findContours(blue_mask,
+                                               cv2.RETR_EXTERNAL,
+                                               cv2.CHAIN_APPROX_NONE)
 
+        for i in range(len(blue_contours)):
+            yellow_area = cv2.contourArea(blue_contours[i])
+            print(yellow_area)
+                                                                         
         for i in range(len(yellow_contours)):
-            print(i)
-            yellow_area = cv2.contourArea(contours[i])
+            yellow_area = cv2.contourArea(yellow_contours[i])
             print(yellow_area)
             if yellow_area > max_duck_area:
                 max_duck_idx = i
-                max_duck_area = area
+                max_duck_area = yellow_area
 
         if max_duck_idx != -1:
             duck_M = cv2.moments(yellow_contours[max_duck_idx])
             try:
+                rospy.loginfo("IN THIS FUNCTIONS")
                 cx = int(duck_M['m10'] / duck_M['m00'])
                 cy = int(duck_M['m01'] / duck_M['m00'])
                 self.stop = True
+                cv2.drawContours(yellow_crop, yellow_contours, max_duck_idx, (0, 255, 0), 3)
+                cv2.circle(yellow_crop, (cx, cy), 7, (0, 0, 255), -1)
+                rect_img_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(yellow_crop))
+                self.pub.publish(rect_img_msg)
                 if DEBUG:
-                    cv2.drawContours(duck_crop, contours, max_idx, (0, 255, 0), 3)
-                    cv2.circle(duck_crop, (cx, cy), 7, (0, 0, 255), -1)
+                    cv2.drawContours(yellow_crop, yellow_contours, max_duck_idx, (0, 255, 0), 3)
+                    cv2.circle(yellow_crop, (cx, cy), 7, (0, 0, 255), -1)
+                    rect_img_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(yellow_crop))
+                    self.pub.publish(rect_img_msg)
             except:
                 pass
-
+	# detect blue
+	
+	
         else:
             self.stop = False
 
