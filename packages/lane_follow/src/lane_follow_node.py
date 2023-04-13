@@ -102,7 +102,7 @@ class LaneFollowNode(DTROS):
     self.ducks_crossing = False
     self.check_duckie_down = False
     self.drive_around_bot = False
-    self.drive_around_duration = 3.2
+    self.drive_around_duration = 3.5
     self.stop_duck_area = 3000
     
     # Bot detection variables
@@ -342,7 +342,7 @@ class LaneFollowNode(DTROS):
         self.ducks_crossing = False
 
     if (self.vehicle_distance is not None and self.detecting_bot == True
-        and self.vehicle_distance < 0.5
+        and self.vehicle_distance < 0.55
         and not self.check_duckie_down):
       self.check_duckie_down = True
       self.stop_starttime = rospy.get_time()
