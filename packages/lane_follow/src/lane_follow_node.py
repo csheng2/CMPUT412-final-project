@@ -249,7 +249,6 @@ class LaneFollowNode(DTROS):
     if max_idx != -1:
       M = cv2.moments(stopContours[max_idx])
       try:
-        rospy.loginfo("SEE STOP LINE")
         cx = int(M['m10'] / M['m00'])
         cy = int(M['m01'] / M['m00'])
         self.stop = True
@@ -264,45 +263,44 @@ class LaneFollowNode(DTROS):
 
 
     # ==================================================================
-    # Detect ducks
-    max_duck_area = self.stop_duck_area
-    max_duck_idx = -1
-    duck_crop = img[: , 230:370, :]
-    yellow_hsv = cv2.cvtColor(duck_crop, cv2.COLOR_BGR2HSV)
-    yellow_mask = cv2.inRange(yellow_hsv, DUCKS_WALKING_MASK[0], DUCKS_WALKING_MASK[1])
-    yellow_crop = cv2.bitwise_and(duck_crop, duck_crop, mask=yellow_mask)
+    # DETECT DUCKS
+    # ONLY IF WE'RE AT THE DUCKWALK APRIL TAG
+    if ( self.last_detected_apriltag is not None
+        and self.apriltag_legend[self.last_detected_apriltag] == "duckwalk"):
+      max_duck_area = self.stop_duck_area
+      max_duck_idx = -1
+      duck_crop = img[: , 230:370, :]
+      yellow_hsv = cv2.cvtColor(duck_crop, cv2.COLOR_BGR2HSV)
+      yellow_mask = cv2.inRange(yellow_hsv, DUCKS_WALKING_MASK[0], DUCKS_WALKING_MASK[1])
+      yellow_crop = cv2.bitwise_and(duck_crop, duck_crop, mask=yellow_mask)
 
-    yellow_contours, yellow_hierarchy = cv2.findContours(yellow_mask,
-                                            cv2.RETR_EXTERNAL,
-                                            cv2.CHAIN_APPROX_NONE)
+      yellow_contours, yellow_hierarchy = cv2.findContours(yellow_mask,
+                                              cv2.RETR_EXTERNAL,
+                                              cv2.CHAIN_APPROX_NONE)
 
-                                                                      
-    for i in range(len(yellow_contours)):
-      yellow_area = cv2.contourArea(yellow_contours[i])
-      if yellow_area > max_duck_area:
-        max_duck_idx = i
-        max_duck_area = yellow_area
+                                                                        
+      for i in range(len(yellow_contours)):
+        yellow_area = cv2.contourArea(yellow_contours[i])
+        if yellow_area > max_duck_area:
+          max_duck_idx = i
+          max_duck_area = yellow_area
 
-    # # don't check for ducks if we're already stopped at a red line
-    # if max_duck_idx != -1 and not self.stop:
-    #   duck_M = cv2.moments(yellow_contours[max_duck_idx])
-    #   try:
-    #     rospy.loginfo("SETTING DUCKS CROSSING TO TRUE")
-    #     cx = int(duck_M['m10'] / duck_M['m00'])
-    #     cy = int(duck_M['m01'] / duck_M['m00'])
-    #     self.ducks_crossing = True
+      if max_duck_idx != -1:
+        duck_M = cv2.moments(yellow_contours[max_duck_idx])
+        try:
+          cx = int(duck_M['m10'] / duck_M['m00'])
+          cy = int(duck_M['m01'] / duck_M['m00'])
+          self.ducks_crossing = True
 
-    #     if DEBUG:
-    #       cv2.drawContours(yellow_crop, yellow_contours, max_duck_idx, (0, 255, 0), 3)
-    #       cv2.circle(yellow_crop, (cx, cy), 7, (0, 0, 255), -1)
-    #       rect_img_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(yellow_crop))
-    #       self.pub.publish(rect_img_msg)
-    #   except:
-    #     pass
-	  
-    # # detect blue
-    # else:
-    #   self.ducks_crossing = False
+          if DEBUG:
+            cv2.drawContours(yellow_crop, yellow_contours, max_duck_idx, (0, 255, 0), 3)
+            cv2.circle(yellow_crop, (cx, cy), 7, (0, 0, 255), -1)
+            rect_img_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(yellow_crop))
+            self.pub.publish(rect_img_msg)
+        except:
+          pass
+      else:
+        self.ducks_crossing = False
 
     if (self.detecting_bot == True and self.vehicle_distance < 0.50
         and not self.check_duckie_down
@@ -348,14 +346,10 @@ class LaneFollowNode(DTROS):
 
 
     if self.ducks_crossing:
-      rospy.loginfo("HERE")
       self.twist.v = 0
       self.twist.omega = 0
       self.vel_pub.publish(self.twist)
     elif self.check_duckie_down:
-      rospy.loginfo("353")
-
-
       if rospy.get_time() - self.stop_starttime < self.stop_duration:
         # Stop
         self.twist.v = 0
@@ -369,8 +363,6 @@ class LaneFollowNode(DTROS):
         self.drive_around_bot = True
 
     elif self.stop:
-      rospy.loginfo("ENTERED STOP")
-
       if rospy.get_time() - self.stop_starttime < self.stop_duration:
         # Stop
         self.twist.v = 0
@@ -378,9 +370,6 @@ class LaneFollowNode(DTROS):
         self.vel_pub.publish(self.twist)
         self.velocity = DEFAULT_VELOCITY
       else:
-        rospy.loginfo("doing the next action")
-        rospy.loginfo(self.next_action)
-
         # Do next action
         if self.next_action == "left":
           # Go left
@@ -404,7 +393,6 @@ class LaneFollowNode(DTROS):
             self.next_action = None
             self.velocity = 0.25  # lower velocity so that we can see the next apriltag
         elif self.next_action == "straight":
-          rospy.loginfo("going straight")
           # Go straight
           if self.started_action == None:
             self.started_action = rospy.get_time()
