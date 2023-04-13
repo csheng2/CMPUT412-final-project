@@ -170,16 +170,6 @@ class LaneFollowNode(DTROS):
       debug = 0
     )
 
-    self.tof_sub = rospy.Subscriber(
-        f"/{self.veh}/front_center_tof_driver_node/range",
-        Range,
-        self.tof_callback,
-        queue_size=1,
-        buff_size="20MB"
-      )
-
-    self.tof_range = None
-
     # Initialize static parameters from camera info message
     camera_info_msg = rospy.wait_for_message(f'/{self.veh}/camera_node/camera_info', CameraInfo)
     self.camera_model = PinholeCameraModel()
@@ -402,21 +392,6 @@ class LaneFollowNode(DTROS):
       # rospy.loginfo("last detected: ")
       # rospy.loginfo(self.last_detected_apriltag)
 
-    
-
-  def tof_callback(self, msg):
-    if not msg:
-      return
-    # rospy.loginfo("================")
-    # rospy.loginfo("min range: ")
-    # rospy.loginfo(msg.min_range)
-    # rospy.loginfo("max range:")
-    # rospy.loginfo(msg.max_range)
-    # rospy.loginfo("range")
-    # rospy.loginfo(msg.range)
-
-    self.tof_range = msg.range
-
 
   def drive(self):
     # Determine next action, if we haven't already
@@ -557,23 +532,23 @@ class LaneFollowNode(DTROS):
           #     self.start_parking = True
 
         elif self.next_action == "parking 1":
-          rospy.loginfo("I've parked in stall 1!")
-          # rospy.signal_shutdown("I've parked in stall 1!")
+          # rospy.loginfo("I've parked in stall 1!")
+          rospy.signal_shutdown("I've parked in stall 1!")
         elif self.next_action == "parking 2":
-          rospy.loginfo("I've parked in stall 2!")
-          # rospy.signal_shutdown("I've parked in stall 2!")
+          # rospy.loginfo("I've parked in stall 2!")
+          rospy.signal_shutdown("I've parked in stall 2!")
         elif self.next_action == "parking 3":
-          rospy.loginfo("I've parked in stall 3!")
-          # rospy.signal_shutdown("I've parked in stall 3!")
+          # rospy.loginfo("I've parked in stall 3!")
+          rospy.signal_shutdown("I've parked in stall 3!")
         elif self.next_action == "parking 4":
-          rospy.loginfo("I've parked in stall 4!")
-          # rospy.signal_shutdown("I've parked in stall 4!")
+          # rospy.loginfo("I've parked in stall 4!")
+          rospy.signal_shutdown("I've parked in stall 4!")
         else:
           self.stop = False
           self.last_stop_time = rospy.get_time()
     else: # do lane following
       if self.start_parking:
-        if self.tof_range > 0.1:
+        if self.at_distance > 0.1:
           self.twist.v = self.velocity
           self.twist.omega = 0
           self.vel_pub.publish(self.twist)
