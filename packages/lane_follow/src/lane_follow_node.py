@@ -263,8 +263,8 @@ class LaneFollowNode(DTROS):
     # ==================================================================
     # DETECT DUCKS
     # ONLY IF WE'RE AT THE DUCKWALK APRIL TAG
-    if ( self.last_detected_apriltag is not None
-        and self.apriltag_legend[self.last_detected_apriltag] == "duckwalk"):
+    if ( self.ducks_crossing or (self.last_detected_apriltag is not None
+        and self.apriltag_legend[self.last_detected_apriltag] == "duckwalk")):
       max_duck_area = self.stop_duck_area
       max_duck_idx = -1
       duck_crop = img[: , 230:370, :]
