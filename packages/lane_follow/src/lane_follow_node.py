@@ -525,7 +525,8 @@ class LaneFollowNode(DTROS):
               print("Not in 1")
 
           else:
-            self.twist.v = 0.1
+            rospy.loginfo("moving forward slowly")
+            self.twist.v = 0.15
             self.twist.omega = 0
             self.vel_pub.publish(self.twist)
 
