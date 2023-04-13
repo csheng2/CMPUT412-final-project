@@ -31,6 +31,13 @@ class LaneFollowNode(DTROS):
     self.node_name = node_name
     self.veh = rospy.get_param("~veh")
 
+    self.stop = False  # true if it detected a stop line
+    self.stop_duration = 3  # stop for 3 seconds
+    self.stop_starttime = 0
+    self.stop_cooldown = 3.5
+    self.stop_threshold_area = 5000 # minimun area of red to stop at
+    self.last_stop_time = None
+
     # Publishers & Subscribers
     self.pub = rospy.Publisher("/" + self.veh + "/output/image/mask/compressed",
                                 CompressedImage,
@@ -71,7 +78,7 @@ class LaneFollowNode(DTROS):
     self.ducks_crossing = False
     self.check_duckie_down = False
     self.drive_around_bot = False
-    self.drive_around_duration = 3.5
+    self.drive_around_duration = 3.2
     self.stop_duck_area = 3000
     
     # Bot detection variables
@@ -111,8 +118,6 @@ class LaneFollowNode(DTROS):
       75: "parking 4",
       227: "parking entrance"
     }
-
-
 
     self.last_detected_apriltag = None
 
@@ -154,13 +159,6 @@ class LaneFollowNode(DTROS):
     self.apriltag_hz = 2
     self.last_message = None
     self.timer = rospy.Timer(rospy.Duration(1 / self.apriltag_hz), self.cb_apriltag_timer)
-
-    self.stop = False  # true if it detected a stop line
-    self.stop_duration = 3  # stop for 3 seconds
-    self.stop_starttime = 0
-    self.stop_cooldown = 3.5
-    self.stop_threshold_area = 5000 # minimun area of red to stop at
-    self.last_stop_time = None
 
     # Turn & action variables
     self.next_action = None
@@ -302,9 +300,9 @@ class LaneFollowNode(DTROS):
       else:
         self.ducks_crossing = False
 
-    if (self.detecting_bot == True and self.vehicle_distance < 0.50
-        and not self.check_duckie_down
-        and rospy.get_time() - self.last_stop_time < self.stop_cooldown):
+    if (self.vehicle_distance is not None and self.detecting_bot == True
+        and self.vehicle_distance < 0.5
+        and not self.check_duckie_down):
       self.check_duckie_down = True
       self.stop_starttime = rospy.get_time()
 
@@ -349,18 +347,19 @@ class LaneFollowNode(DTROS):
       self.twist.v = 0
       self.twist.omega = 0
       self.vel_pub.publish(self.twist)
+
     elif self.check_duckie_down:
       if rospy.get_time() - self.stop_starttime < self.stop_duration:
         # Stop
         self.twist.v = 0
         self.twist.omega = 0
         self.vel_pub.publish(self.twist)
-        self.velocity = DEFAULT_VELOCITY
       else:
         self.check_duckie_down = False
         self.last_stop_time = rospy.get_time()
         self.offset *= -1
         self.drive_around_bot = True
+        self.start_backup = None
 
     elif self.stop:
       if rospy.get_time() - self.stop_starttime < self.stop_duration:
