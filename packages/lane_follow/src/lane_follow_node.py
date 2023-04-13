@@ -577,13 +577,8 @@ class LaneFollowNode(DTROS):
           self.twist.v = self.velocity
           self.twist.omega = 0
           self.vel_pub.publish(self.twist)
-
-      # Determine Omega - based on lane-following
-      if self.proportional is None:
-        self.twist.omega = 0
-        self.last_error = 0
-      else:
-        self._compute_lane_follow_PID()
+          
+      self._compute_lane_follow_PID()
 
     # self.vel_pub.publish(self.twist)
 
@@ -591,7 +586,7 @@ class LaneFollowNode(DTROS):
     if self.drive_around_bot and rospy.get_time() - self.last_stop_time > self.drive_around_duration:
       self.drive_around_bot = False
       self.offset *= -1
-      
+
     if self.proportional is None:
         self.twist.omega = 0
         self.last_error = 0
