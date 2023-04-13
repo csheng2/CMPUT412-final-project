@@ -1,10 +1,13 @@
 <launch>
-    <arg name="veh" doc="Name of vehicle. ex: megaman"/>
+    <arg name="veh" doc="Name of vehicle."/>
     <arg name="pkg_name" value="lane_follow"/>
     <arg name="node_name" default="lane_follow_node"/>
     <group ns="$(arg veh)">
         <node name="$(arg node_name)" pkg="$(arg pkg_name)" type="$(arg node_name).py" output="screen" required="true">
             <param name="veh" value="$(arg veh)" />
+            
+            <!-- change arg parking_stall in default.sh -->
+            <param name="parking_stall_number" type="int" value="$(arg parking_stall)"/>
         </node>
     </group>
 </launch>

@@ -13,9 +13,10 @@ dt-launchfile-init
 # NOTE: Use `dt-exec COMMAND` to run the main process (blocking process)
 
 # launching app
-dt-exec roslaunch lane_follow lane_follow_node.launch veh:=$VEHICLE_NAME
+dt-exec roslaunch lane_follow lane_follow_node.launch veh:=$VEHICLE_NAME parking_stall:=1
 dt-exec roslaunch duckiebot_detection duckiebot_detection_node.launch
 # dt-exec roslaunch stage2 stage2_node.launch veh:=$VEHICLE_NAME
+#dt-exec roslaunch stage2 stage2_node.launch veh:=$VEHICLE_NAME
 
 # ----------------------------------------------------------------------------
 # YOUR CODE ABOVE THIS LINE
