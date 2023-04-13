@@ -181,8 +181,6 @@ class LaneFollowNode(DTROS):
                     self.pub.publish(rect_img_msg)
             except:
                 pass
-	# detect blue
-	
 	
         else:
             self.stop = False
