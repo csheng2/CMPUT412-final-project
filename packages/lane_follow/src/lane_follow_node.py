@@ -198,9 +198,9 @@ class LaneFollowNode(DTROS):
 
     # Turn & action variables
     self.next_action = None
-    self.left_turn_duration = 3.7
+    self.left_turn_duration = 2.3
     self.right_turn_duration = 1
-    self.straight_duration = 4
+    self.straight_duration = 3
     self.started_action = None
     self.parking_turn_duration = 2.2
     self.start_parking = False
@@ -401,22 +401,6 @@ class LaneFollowNode(DTROS):
     # Get available action from last detected april tag
     if self.next_action is None and self.last_detected_apriltag is not None:
       self.next_action = self.apriltag_legend[self.last_detected_apriltag]
-      rospy.loginfo(self.next_action)
-      if self.next_action == "duckwalk" or (self.last_stop_duck_time and rospy.get_time() - self.last_stop_duck_time < 3):
-        self.is_duckwalk = True
-
-    if self.is_duckwalk:
-      if self.started_action == None:
-        self.started_action = rospy.get_time()
-      elif rospy.get_time() - self.started_action < 2:
-        self.twist.v = 0
-        self.twist.omega = 0
-        self.vel_pub.publish(self.twist)
-      else:
-        self.started_action = None
-        self.next_action = None
-        self.is_duckwalk = False
-        self.last_stop_duck_time = rospy.get_time()
 
     if self.ducks_crossing:
       self.twist.v = 0
@@ -479,80 +463,75 @@ class LaneFollowNode(DTROS):
             self.next_action = None
         elif self.next_action == "parking entrance":
 
-          # if self.at_distance > self.desired_parking_tag_dist and self.last_detected_apriltag == 227:
-          #   # print("stopping at: ", self.desired_parking_tag_dist)
-          #   self.velocity = 0.18
-          #   self.proportional = -self.drift
-          #   self._compute_lane_follow_PID()
+          if self.at_distance > self.desired_parking_tag_dist and self.last_detected_apriltag == 227:
+            # print("stopping at: ", self.desired_parking_tag_dist)
+            self.velocity = 0.18
+            self.proportional = -self.drift
+            self._compute_lane_follow_PID()
             
-          # elif self.at_distance <= self.desired_parking_tag_dist and self.last_detected_apriltag == 227:
-          #   # print("stopping")
-          #   print("THIS IS THE last tag ID: ", self.last_detected_apriltag)
-          #   self.twist.v = 0
-          #   self.twist.omega = 0
-          #   self.vel_pub.publish(self.twist)
-          #   # rospy.loginfo("Stopped at lights")
-          #   if not self.light_stop:
-          #     self.parking_start_timer = rospy.get_time()
-            
-          #   self.light_stop = True
-
-          #   if self.light_stop and rospy.get_time() - self.parking_start_timer > 3:
-          #     if self.last_detected_apriltag != self.parking_tag:
-          #       rospy.loginfo("Turning")
-          #       self.twist.v = 0
-          #       if self.parking_stall_number == 1 or self.parking_stall_number == 2:
-          #         self.twist.omega = 2.5        
-          #       elif self.parking_stall_number == 3 or self.parking_stall_number == 4:
-          #         self.twist.omega = -2.5
-          #       self.vel_pub.publish(self.twist)
-
-          #     elif self.last_detected_apriltag == self.parking_tag:
-          #       rospy.loginfo("Using tag")
-          #       self.velocity = 0.15
-          #       self.proportional = -self.drift
-          #       self._compute_lane_follow_PID()
-              
-          #   else:
-          #     print("Not in 1")
-
-          # else:
-          #   rospy.loginfo("moving forward slowly")
-          #   self.twist.v = 0.15
-          #   self.twist.omega = 0
-          #   self.vel_pub.publish(self.twist)
-
-
-          if self.at_distance > self.desired_parking_tag_dist:
-            rospy.loginfo("GOING STRAIGHT FOR PARKING")
-            # go straight for a bit
-            self.twist.v = self.velocity
+          elif self.at_distance <= self.desired_parking_tag_dist and self.last_detected_apriltag == 227:
+            # print("stopping")
+            print("THIS IS THE last tag ID: ", self.last_detected_apriltag)
+            self.twist.v = 0
             self.twist.omega = 0
             self.vel_pub.publish(self.twist)
-          else:
-            if self.started_action == None:
-              # start parking action
-              self.started_action = rospy.get_time()
-            elif rospy.get_time() - self.started_action < self.parking_turn_duration:
+            # rospy.loginfo("Stopped at lights")
+            if not self.light_stop:
+              self.parking_start_timer = rospy.get_time()
+            
+            self.light_stop = True
 
-            # turn into parking stall
-              if self.parking_stall_number == 1 or self.parking_stall_number == 2:
-                rospy.loginfo("TURNING LEFT FOR PARKING")
-
+            if self.light_stop and rospy.get_time() - self.parking_start_timer > 3:
+              if self.last_detected_apriltag != self.parking_tag:
+                rospy.loginfo("Turning")
                 self.twist.v = 0
-                self.twist.omega = 2.5
+                if self.parking_stall_number == 1 or self.parking_stall_number == 2:
+                  self.twist.omega = 2.5        
+                elif self.parking_stall_number == 3 or self.parking_stall_number == 4:
+                  self.twist.omega = -2.5
                 self.vel_pub.publish(self.twist)
-              elif self.parking_stall_number == 3 or self.parking_stall_number == 4:
-                rospy.loginfo("TURNING RIGHT FOR PARKING")
 
-                self.twist.v = 0
-                self.twist.omega = -3.5
-                self.vel_pub.publish(self.twist)
+              elif self.last_detected_apriltag == self.parking_tag:
+                rospy.loginfo("Using tag")
+                self.velocity = 0.15
+                self.proportional = -self.drift
+                self._compute_lane_follow_PID()
+              
             else:
-            # done parking action
-              self.started_action = None
-              self.next_action = None
-              self.start_parking = True
+              print("Not in 1")
+
+          else:
+            rospy.loginfo("moving forward slowly")
+            self.twist.v = 0.15
+            self.twist.omega = 0
+            self.vel_pub.publish(self.twist)
+
+
+          # if self.at_distance > self.desired_parking_tag_dist:
+          #   # go straight for a bit
+          #   self.twist.v = self.velocity
+          #   self.twist.omega = 0
+          #   self.vel_pub.publish(self.twist)
+          # else:
+          #   if self.started_action == None:
+          #     # start parking action
+          #     self.started_action = rospy.get_time()
+          #   elif rospy.get_time() - self.started_action < self.parking_turn_duration:
+
+          #   # turn into parking stall
+          #     if self.parking_stall_number == 1 or self.parking_stall_number == 2:
+          #       self.twist.v = 0
+          #       self.twist.omega = 2.5
+          #       self.vel_pub.publish(self.twist)
+          #     elif self.parking_stall_number == 3 or self.parking_stall_number == 4:
+          #       self.twist.v = 0
+          #       self.twist.omega = -3.5
+          #       self.vel_pub.publish(self.twist)
+          #   else:
+          #   # done parking action
+          #     self.started_action = None
+          #     self.next_action = None
+          #     self.start_parking = True
 
         elif self.next_action == "parking 1":
           # rospy.loginfo("I've parked in stall 1!")
