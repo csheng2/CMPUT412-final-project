@@ -16,12 +16,6 @@ This package contains the code for all three stages. It implements a node that h
 
 This package contains code that helps us identify duckie bots that are ahead of us. It implements computer vision and uses the sticker on the back of other bots to detect bots and the distance from the camera. This node is used in the stage two deliverable. 
 
-
-### 3. Define dependencies
-
-List the dependencies in the files `dependencies-apt.txt` and
-`dependencies-py3.txt` (apt packages and pip packages respectively).
-
 ## Execution:
 
 To run the program, ensure that the variable `$BOT` stores your robot's host name (ie. `csc229xx`), and run the following commands:
