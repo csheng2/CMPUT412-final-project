@@ -44,8 +44,6 @@ This code is built from the duckietown template that provides a boilerplate repo
 
 Build on top of by Celina Sheng, and Sharyat Singh Bhanwala.
 
-Autonomous lane following code was borrowed from Justin Francis.
-Duckibot detection code was borrowed from Shaw
 
 Code was also borrowed (and cited in-code) from the following sources:
 
