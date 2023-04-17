@@ -52,6 +52,5 @@ Duckibot detection code was borrowed from Shaw
 
 Code was also borrowed (and cited in-code) from the following sources:
 
-Justin Francis. We used his template for our lane follow code, which was taken from eclass under the exercise 4 "Lane Follow Package" link. https://eclass.srv.ualberta.ca/mod/resource/view.php?id=6952069
-
-Zepeng Xiao. We used his Duckiebot detection node code, which was taken from GitHub https://github.com/XZPshaw/CMPUT412503_exercise4
+-Justin Francis. We used his template for our lane follow code, which was taken from eclass under the exercise 4 "Lane Follow Package" link. https://eclass.srv.ualberta.ca/mod/resource/view.php?id=6952069
+-Zepeng Xiao. We used his Duckiebot detection node code, which was taken from GitHub https://github.com/XZPshaw/CMPUT412503_exercise4
